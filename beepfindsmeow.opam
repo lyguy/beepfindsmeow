@@ -1,0 +1,15 @@
+opam-version: "1.2"
+name: "beepfindsmeow"
+version: "0.0.1"
+maintainer: "Lyman Gillispie <l@lygi.me>"
+authors: "Lyman Gillispie <l@lygi.me>"
+homepage: "https://github.com/lyguy/beepfindsmeow"
+bug-reports: "https://github.com/lyguy/beepfindsmeow/issues"
+license: "MIT"
+dev-repo: "https://github.com/lyguy/beepfindsmeow.git"
+build: [["jbuilder" "build" "-p" name "-j" jobs]]
+depends: [
+  "jbuilder"  {build & >= "1.0+beta20"}
+  "base"      {>= "0.11.0"}
+  "notty"     {>= "0.2.1"}
+]
