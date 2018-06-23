@@ -2,6 +2,6 @@
 
 (executable
  ((name main)
- (public_name beepfindsmeow)
- (libraries (base notty))
- (preprocess (pps (ppx_jane)))))
+  (public_name beepfindsmeow)
+  (libraries (base notty))
+  (preprocess (pps (ppx_jane ppx_enumerate)))))
