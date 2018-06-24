@@ -364,9 +364,13 @@ module Xy_board : sig
 
   val of_alist_or_error: h:int -> w:int -> (Coord.t * 'a) list -> ('a t) Or_error.t
 
+  val size: 'a t -> int * int
+
   val get: ('a t) -> Coord.t -> ('a option) Or_error.t
 
   val set: ('a t) -> Coord.t -> 'a -> ('a t) Or_error.t
+
+  val remove: ('a t) -> Coord.t -> ('a t) Or_error.t
 end = struct
 
   type 'a t = {
@@ -385,6 +389,8 @@ end = struct
     then Ok xy
     else Or_error.errorf "Coordinates out of bounds: x,y = (%i, %i) but h,w = (%i, %i)" x y h w
 
+  let size t = t.height_width
+
   let get t xy =
     let open Or_error.Let_syntax in
     let%map i = valid_coord_or_error t.height_width xy in
@@ -394,6 +400,11 @@ end = struct
     let open Or_error.Let_syntax in
     let%map i = valid_coord_or_error t.height_width xy in
     { t with contents = Map.set t.contents ~key:i ~data:v }
+
+  let remove t xy =
+    let open Or_error.Let_syntax in
+    let%map c = valid_coord_or_error t.height_width xy in
+    { t with contents = Map.remove t.contents c } 
 
   let of_alist_or_error ~h ~w alist =
     let hw = (h,w) in
@@ -415,12 +426,10 @@ end = struct
         contents;
       }
     in
-
     match valid_bounds h w with
     | false -> Or_error.errorf "Height and Width must be positive: h:%i w%i" h w
     | true -> build_contents alist
 end
-
 
 module Board : sig
   type t
@@ -429,16 +438,19 @@ module Board : sig
 
   val create_rand : height:int -> width:int -> n_items:int -> t Or_error.t
 
-  val get : t -> int * int -> Item.t option Or_error.t
+  (** gives the size of the board in hight * width*)
+  val size : t -> int * int
 
-  (* val move: t -> dir -> t * Status.t *)
+  val get : t -> int * int -> Item.t option
+
+  val move: t -> dir -> t
 
 end = struct
 
   type t = {
     board: Item.t Xy_board.t;
-    robot_pos: int*int;
-    kitten_pos: int*int;
+    robot_pos: Coord.t;
+    kitten_pos: Coord.t;
   }
 
   type dir = Up | Down | Left | Right
@@ -465,6 +477,41 @@ end = struct
           }
         end
 
-  let get t xy = Xy_board.get t.board xy
-end
+  let get t xy = match Xy_board.get t.board xy with
+    | Ok i -> i
+    | Error _ -> None
 
+  let size t = Xy_board.size t.board
+
+  let move t dir =
+    let open Or_error.Let_syntax in
+
+    let target =
+      let (x,y) = t.robot_pos in
+      match dir with
+      | Up -> (x, y - 1)
+      | Down -> (x, y + 1)
+      | Left -> (x - 1, y)
+      | Right -> (x + 1, y)
+    in
+
+    let move_robot t =
+      begin
+        let%bind b1 = Xy_board.set t.board target Item.Robot in
+        let%map b2 = Xy_board.remove b1 t.robot_pos in
+        {
+          board = b2;
+          robot_pos = target;
+          kitten_pos = t.kitten_pos;
+        }
+      end
+      |> Or_error.ok
+      |> Option.value ~default:t
+    in
+
+    match Xy_board.get t.board target with
+    | Error _ -> t
+    | Ok contents -> match contents with
+      | Some _ -> t
+      | None -> (move_robot t)
+end

@@ -3,5 +3,5 @@
 (executable
  ((name main)
   (public_name beepfindsmeow)
-  (libraries (base notty))
+  (libraries (base notty notty.unix))
   (preprocess (pps (ppx_jane ppx_enumerate)))))
