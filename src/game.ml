@@ -8,7 +8,7 @@ module Rand_util = struct
 
   let n_rand_unique comparater generator size =
     let rec loop s =
-      if size == (Set.length s) then Set.to_list s
+      if Int.equal (Set.length s)  size  then Set.to_list s
       else Set.add s (generator ()) |> loop
     in
     if size <= 0 then []
@@ -355,6 +355,8 @@ module Coord = struct
   let compare = [%compare: (int * int)]
   let sexp_of_t = [%sexp_of: (int * int)]
   include (val Comparator.make ~compare ~sexp_of_t)
+
+  let rand h w = (Random.int h, Random.int w)
 end
 
 module Xy_board : sig
@@ -441,13 +443,28 @@ end = struct
 
   type dir = Up | Down | Left | Right
 
+  let create_rand ~height ~width ~n_items =
+    let frac = 5 in
 
-  let create_rand ~height ~width ~n_items = 
-    Or_error.error_string "balls"
-
-  (* create rand ->  check size -> check item num is ok -> generate n items + corodinates -> done *)
+    if height <= 0 || width <= 0 || n_items <= 0
+    then Or_error.errorf "Height, width, and n_items must be positive: height: %i, width: %i, n_items: %i" height width n_items
+    else if (height * width) <= n_items * frac
+    then Or_error.errorf "n_items must be less than 1/%i of the total squares (height * width)" frac
+    else
+      match Rand_util.n_rand_unique (module Coord) (fun () -> Coord.rand height width) (n_items + 2) with
+      | [] | _ :: []  -> Or_error.error_string "n_rand_unique didn't return enough items. This is a bug."
+      | robot_pos :: kitten_pos :: items -> begin
+          let open Or_error.Let_syntax in
+          let%map board =
+            (robot_pos, Item.Robot) :: (kitten_pos, Item.rand_kitten ()) :: List.map items ~f:(fun c -> (c, Item.rand_obs ()))
+            |> Xy_board.of_alist_or_error ~h:height ~w:width in
+          {
+            board;
+            robot_pos;
+            kitten_pos;
+          }
+        end
 
   let get t xy = Xy_board.get t.board xy
-
 end
 
