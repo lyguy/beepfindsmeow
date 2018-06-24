@@ -1,9 +1,20 @@
 open Base
 
-(** Helper to grab a random element from an array *)
-let array_rand a =
-  let i = Array.length a |> Random.int in
-  a.(i)
+module Rand_util = struct
+  (** Helper to grab a random element from an array *)
+  let array_rand a =
+    let i = Array.length a |> Random.int in
+    a.(i)
+
+  let n_rand_unique comparater generator size =
+    let rec loop s =
+      if size == (Set.length s) then Set.to_list s
+      else Set.add s (generator ()) |> loop
+    in
+    if size <= 0 then []
+    else loop (Set.empty comparater)
+end
+
 
 module Msg = struct
   type t = string
@@ -212,7 +223,7 @@ module Msg = struct
     "A magical... magic thing.";
   |]
 
-  let rand () = array_rand all
+  let rand () = Rand_util.array_rand all
 end
 
 
@@ -308,7 +319,7 @@ module Sigal = struct
     '>';
   |]
 
-  let rand () = array_rand all
+  let rand () = Rand_util.array_rand all
 end
 
 module Color = struct
@@ -319,7 +330,7 @@ module Color = struct
     | Blue
   [@@deriving enumerate]
   let all = all |> Array.of_list
-  let rand () = array_rand all
+  let rand () = Rand_util.array_rand all
 end
 
 module Avatar = struct
@@ -329,6 +340,7 @@ end
 
 module Item = struct
   type t =
+    | Robot
     | Kitten of Avatar.t
     | Obstacle of Avatar.t * Msg.t
 
@@ -338,6 +350,75 @@ module Item = struct
 end
 
 
+module Coord = struct
+  type t = (int * int)
+  let compare = [%compare: (int * int)]
+  let sexp_of_t = [%sexp_of: (int * int)]
+  include (val Comparator.make ~compare ~sexp_of_t)
+end
+
+module Xy_board : sig
+  type 'a t
+
+  val of_alist_or_error: h:int -> w:int -> (Coord.t * 'a) list -> ('a t) Or_error.t
+
+  val get: ('a t) -> Coord.t -> ('a option) Or_error.t
+
+  val set: ('a t) -> Coord.t -> 'a -> ('a t) Or_error.t
+end = struct
+
+  type 'a t = {
+    height_width: int * int;
+    contents: (Coord.t, 'a , Coord.comparator_witness) Map.t;
+  }
+
+  let valid_bounds h w = 0 < h && 0 < w
+
+  let valid_coord  (h, w) (x, y) =
+    0 <= x && x < w &&
+    0 <= y && y < h
+
+  let valid_coord_or_error (h,w as hw) (x, y as xy) =
+    if valid_coord hw xy
+    then Ok xy
+    else Or_error.errorf "Coordinates out of bounds: x,y = (%i, %i) but h,w = (%i, %i)" x y h w
+
+  let get t xy =
+    let open Or_error.Let_syntax in
+    let%map i = valid_coord_or_error t.height_width xy in
+    Map.find t.contents i
+
+  let set t xy v =
+    let open Or_error.Let_syntax in
+    let%map i = valid_coord_or_error t.height_width xy in
+    { t with contents = Map.set t.contents ~key:i ~data:v }
+
+  let of_alist_or_error ~h ~w alist =
+    let hw = (h,w) in
+
+    let item_ok (xy, item) =
+      let open Or_error.Let_syntax in
+      let%map i = valid_coord_or_error hw xy in
+      (i, item)
+    in
+
+    let build_contents items =
+      let open Or_error.Let_syntax in
+      let%bind items_indexed = List.map items ~f:item_ok
+                               |> Or_error.combine_errors in
+      let%bind contents =
+        Map.of_alist_or_error (module Coord) items_indexed in
+      Ok {
+        height_width = hw;
+        contents;
+      }
+    in
+
+    match valid_bounds h w with
+    | false -> Or_error.errorf "Height and Width must be positive: h:%i w%i" h w
+    | true -> build_contents alist
+end
+
 
 module Board : sig
   type t
@@ -346,90 +427,27 @@ module Board : sig
 
   val create_rand : height:int -> width:int -> n_items:int -> t Or_error.t
 
-  val get : t -> int * int -> Item.t option
+  val get : t -> int * int -> Item.t option Or_error.t
 
   (* val move: t -> dir -> t * Status.t *)
 
 end = struct
 
-  (** Book-keeping to convert from x-y coordinates to our i index in the map below *)
-  module C = struct
-    let valid_xy (h,w) (x,y) =
-      if x < 0 || w < x || y < 0 || h < y then false
-      else true
-
-    let valid_i (h,w) i =
-      if i < 0 || i < (h * w) then false
-      else true
-
-    let xy_to_i (h,w) (x,y) =
-      match valid_xy (h,w) (x,y) with
-      | true -> Some (x + (w * y))
-      | false -> None
-
-    let i_to_xy (h,w) i =
-      match valid_i (h,w) i with
-      | true -> Some ((i % w), (i / w))
-      | false -> None
-  end
-
   type t = {
-    hw: int * int;
-    contents: (Int.t, Item.t, Int.comparator_witness) Map.t;
-    robot_index: int
+    board: Item.t Xy_board.t;
+    robot_pos: int*int;
+    kitten_pos: int*int;
   }
 
   type dir = Up | Down | Left | Right
 
-  let create_rand ~height ~width ~n_items =
 
-    (* give us size unique ints between 0(inclusive) and bound (not inclusive)*)
-    let n_rand_unique bound size =
-      let rec loop s =
-        if size == (Set.length s) then Set.to_list s
-        else Set.add s (Random.int bound) |> loop
-      in
-      if size <= 0 then []
-      else loop (Set.empty (module Int))
-    in
+  let create_rand ~height ~width ~n_items = 
+    Or_error.error_string "balls"
 
-    (* we'll require the items to take up no more than 1/frac of the board*)
-    let frac = 5 in
+  (* create rand ->  check size -> check item num is ok -> generate n items + corodinates -> done *)
 
-    (* valid board size*)
-    if height <= 0 || width <= 0 then
-      Or_error.errorf "Invalid board size: height: %i width %i" height width
-    else
-      (* room to move *)
-    if (height * width) < (n_items * frac) then
-     Or_error.errorf "n_items must be less than 1/%i of the total board size" frac
-    else
-    if n_items < 0 then
-      Or_error.errorf "n_items must be at least than 0: n_items = %i" n_items
-    else
-      let placements = n_rand_unique (height * width) n_items in
-      match placements with
-      | _ :: [] | [] -> Or_error.error_string "Object placements were ill-formed. This is a bug."
-      | r :: k :: items ->
-        let open Or_error.Let_syntax in
-        let%map contents = 
-          List.map items ~f:(function i -> (i, Item.rand_obs () ))
-          |> Map.of_alist_or_error (module Int) 
-          |> Result.map ~f:(Map.set ~key:k ~data:(Item.rand_kitten () ))
-        in
-        {
-          contents = contents;
-          hw = (height,width);
-          robot_index = r;
-        }
+  let get t xy = Xy_board.get t.board xy
 
-
-  let get t c =
-    match C.xy_to_i t.hw c with
-    | None -> None
-    | Some i -> Map.find t.contents i
-
-
-  
 end
 
