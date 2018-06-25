@@ -356,13 +356,13 @@ module Coord = struct
   let sexp_of_t = [%sexp_of: (int * int)]
   include (val Comparator.make ~compare ~sexp_of_t)
 
-  let rand h w = (Random.int h, Random.int w)
+  let rand w h = (Random.int w, Random.int h)
 end
 
 module Xy_board : sig
   type 'a t
 
-  val of_alist_or_error: h:int -> w:int -> (Coord.t * 'a) list -> ('a t) Or_error.t
+  val of_alist_or_error: w:int ->  h:int -> (Coord.t * 'a) list -> ('a t) Or_error.t
 
   val size: 'a t -> int * int
 
@@ -374,44 +374,49 @@ module Xy_board : sig
 end = struct
 
   type 'a t = {
-    height_width: int * int;
+    (* width * height *)
+    size: int * int;
     contents: (Coord.t, 'a , Coord.comparator_witness) Map.t;
   }
 
-  let valid_bounds h w = 0 < h && 0 < w
+  let valid_bounds w h = 0 < h && 0 < w
 
-  let valid_coord  (h, w) (x, y) =
+  let valid_coord  ~size ~coord =
+    let (w, h) = size in
+    let (x, y) = coord in
     0 <= x && x < w &&
     0 <= y && y < h
 
-  let valid_coord_or_error (h,w as hw) (x, y as xy) =
-    if valid_coord hw xy
-    then Ok xy
-    else Or_error.errorf "Coordinates out of bounds: x,y = (%i, %i) but h,w = (%i, %i)" x y h w
+  let valid_coord_or_error ~size ~coord =
+    let (w, h) = size in
+    let (x, y) = coord in
+    if valid_coord ~size ~coord
+    then Ok coord
+    else Or_error.errorf "Coordinates out of bounds: x,y = (%i, %i) but w,h = (%i, %i)" x y w h
 
-  let size t = t.height_width
+  let size t = t.size
 
-  let get t xy =
+  let get t coord =
     let open Or_error.Let_syntax in
-    let%map i = valid_coord_or_error t.height_width xy in
+    let%map i = valid_coord_or_error ~size:t.size ~coord in
     Map.find t.contents i
 
-  let set t xy v =
+  let set t coord v =
     let open Or_error.Let_syntax in
-    let%map i = valid_coord_or_error t.height_width xy in
+    let%map i = valid_coord_or_error ~size:t.size ~coord in
     { t with contents = Map.set t.contents ~key:i ~data:v }
 
-  let remove t xy =
+  let remove t coord =
     let open Or_error.Let_syntax in
-    let%map c = valid_coord_or_error t.height_width xy in
+    let%map c = valid_coord_or_error ~size:t.size ~coord in
     { t with contents = Map.remove t.contents c } 
 
-  let of_alist_or_error ~h ~w alist =
-    let hw = (h,w) in
+  let of_alist_or_error ~w ~h alist =
+    let size = (w, h) in
 
-    let item_ok (xy, item) =
+    let item_ok (coord, item) =
       let open Or_error.Let_syntax in
-      let%map i = valid_coord_or_error hw xy in
+      let%map i = valid_coord_or_error ~size ~coord in
       (i, item)
     in
 
@@ -422,7 +427,7 @@ end = struct
       let%bind contents =
         Map.of_alist_or_error (module Coord) items_indexed in
       Ok {
-        height_width = hw;
+        size;
         contents;
       }
     in
@@ -463,7 +468,7 @@ end = struct
     else if (height * width) <= n_items * frac
     then Or_error.errorf "n_items must be less than 1/%i of the total squares (height * width)" frac
     else
-      match Rand_util.n_rand_unique (module Coord) (fun () -> Coord.rand height width) (n_items + 2) with
+      match Rand_util.n_rand_unique (module Coord) (fun () -> Coord.rand width height) (n_items + 2) with
       | [] | _ :: []  -> Or_error.error_string "n_rand_unique didn't return enough items. This is a bug."
       | robot_pos :: kitten_pos :: items -> begin
           let open Or_error.Let_syntax in

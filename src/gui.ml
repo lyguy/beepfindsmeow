@@ -17,7 +17,7 @@ let item i =
 
 
 let board b =
-  let (h, w) = Board.size b in
+  let (w, h) = Board.size b in
   let f x y = match Board.get b (x,y) with
     | None -> I.void 1 1
     | Some i -> item i
