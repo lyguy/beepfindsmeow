@@ -12,7 +12,7 @@ end = struct
 
   let create () =
     let open Base.Or_error.Let_syntax in
-    let%map game = Game.create_rand ~height:20 ~width:20 ~n_items:20 in
+    let%map game = Game.create_rand ~height:60 ~width:100 ~n_items:20 in
     (game, None)
 
   let binding (b, msg) arrow =
@@ -26,7 +26,7 @@ end = struct
     match m_opt with
     | None -> (b_new, msg)
     | Some _ as msg_new-> (b_new, msg_new)
-    
+
   let draw (b, m) =
     let avatar (s, c) =
       let a = match c with
@@ -65,6 +65,83 @@ end = struct
 end
 
 
+module Menu_ui : sig
+  type t =
+    | New_game
+    | Quit
+  val empty : t
+  val binding: t ->  [ `Down | `Left | `Right | `Up ] -> t
+  val draw: t -> Notty.I.t
+end = struct
+  type t =
+    | New_game
+    | Quit
+
+  let next t =
+    match t with
+    | New_game -> Quit
+    | Quit -> Quit
+
+  let prev t =
+    match t with
+    | New_game -> New_game
+    | Quit -> New_game
+
+
+  let binding t e = match e with
+    | `Down -> next t
+    | `Up -> prev t
+    | `Left | `Right -> t
+
+  let empty = New_game
+
+
+  let imgafy ss a = List.map ss ~f:(fun i -> Notty.I.string a i)
+                    |> Notty.I.vcat
+
+  let beep =imgafy
+      [" , __              ";
+       "/|/  \             ";
+       " | __/ _   _    _  ";
+       " |   \\|/  |/  |/ \\_";
+       " |(__/|__/|__/|__/ ";
+       "             /|    ";
+       "             \\|    ";]
+
+
+  let finds = imgafy
+      [" _                       ";
+       "| | o             |      ";
+       "| |     _  _    __|   ,  ";
+       "|/  |  / |/ |  /  |  / \\_";
+       "|__/|_/  |  |_/\\_/|_/ \\/ ";
+       "|\                       ";
+       "|/                       ";]
+
+
+  let meow = imgafy
+      [" ,__ __                    ";
+       "/|  |  |                   ";
+       " |  |  |   _   __          ";
+       " |  |  |  |/  /  \\_|  |  |_";
+       " |  |  |_/|__/\\__/  \\/ \\/  ";
+       "                           ";
+       "                           ";]
+
+  let banner = I.(
+      beep(A.st A.bold) <|> finds(A.empty) |> hpad 0 1 <|> meow(A.st A.bold)
+    )
+
+
+  let draw t =
+    let menu = match t with
+      | New_game ->  I.(string A.(bg white ++ fg black) "New Game"  <-> string A.empty "Quit") 
+      | Quit -> I.(string A.empty "New Game"  <-> string A.(bg white ++ fg black) "Quit")
+    in
+    I.(banner <-> menu)
+end
+
+
 module Ui : sig
   type t
 
@@ -72,40 +149,56 @@ module Ui : sig
 
   val draw : t -> I.t
 
+  val is_end : t -> bool
+
   val handle_event: t -> Unescape.event -> t
 end = struct
 
   type t =
-    | Menu
+    | Menu of Menu_ui.t
     | Game of Game_ui.t
+    | End
 
-  let create () = Menu
+  let create () = Menu (Menu_ui.empty)
 
   let draw t = match t with
-    | Menu -> I.empty
+    | Menu state -> Menu_ui.draw state
     | Game state -> Game_ui.draw state
+    | End -> I.empty
+
+  let is_end t = match t with
+    | End -> true
+    | Game _ | Menu _ -> false
 
 
   let game_binding state event =
     match event with
-    | `Key (`Escape, _)       -> Menu
-    | `Key (`Arrow arrow,_)   -> Game (Game_ui.binding state arrow)
-    | _                       -> Game state
+    | `Key (`Escape, _)     -> Menu (Menu_ui.empty)
+    | `Key (`Arrow arrow,_) -> Game (Game_ui.binding state arrow)
+    | _                     -> Game state
 
-  let menu_binding event =
+  let menu_binding state event =
+    let new_game () =
+      match Game_ui.create () with
+      | Error _ -> Menu (Menu_ui.empty)
+      | Ok b ->  Game b
+    in
     match event with
+    | `Key (`Arrow arrow ,_) -> Menu (Menu_ui.binding state arrow)
     | `Key (`Enter,_) ->
       begin
-        match Game_ui.create () with
-        | Error _ -> Menu (* fix this *)
-        | Ok b ->  Game b
+        match state with
+        | Menu_ui.Quit -> End
+        | Menu_ui.New_game -> new_game ()
+
       end
-    | _ -> Menu
+    | _ -> Menu (Menu_ui.empty)
 
   let handle_event t e =
     match t with
-    | Menu -> menu_binding e
+    | Menu state -> menu_binding state e
     | Game state -> game_binding state e
+    | End -> End
 end
 
 
@@ -116,16 +209,18 @@ end = struct
 
   let main_loop term =
     let rec loop t ui =
-      Ui.draw ui |> Term.image t;
-      match Term.event t with
-      | `End | `Key (`ASCII 'C', [`Ctrl]) | `Key (`ASCII 'D', [`Ctrl]) -> ()
-      | `Resize _ -> loop t ui
-      | #Unescape.event as e -> Ui.handle_event ui e |> loop t in
+      if Ui.is_end ui then () else begin
+        Ui.draw ui |> Term.image t;
+        match Term.event t with
+        | `End | `Key (`ASCII 'C', [`Ctrl]) | `Key (`ASCII 'D', [`Ctrl]) -> ()
+        | `Resize _ -> loop t ui
+        | #Unescape.event as e -> Ui.handle_event ui e |> loop t
+      end in
     loop term (Ui.create ())
 
 
   let main () =
-    Base.Random.self_init (); 
+    Base.Random.self_init ();
     let t = Term.create () in
     main_loop t;
     Term.release t
