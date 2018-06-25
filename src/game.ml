@@ -347,6 +347,11 @@ module Item = struct
   let rand_obs () = Obstacle (Avatar.rand () , Msg.rand ())
 
   let rand_kitten () = Kitten (Avatar.rand ())
+
+  let msg = function
+    | Robot           -> "There's another robot here...."
+    | Obstacle (_, m) -> m
+    | Kitten _        -> "You found Meow!"
 end
 
 
@@ -436,7 +441,7 @@ end = struct
     | true -> build_contents alist
 end
 
-module Board : sig
+module T : sig
   type t
 
   type dir = Up | Down | Left | Right
@@ -448,7 +453,7 @@ module Board : sig
 
   val get : t -> int * int -> Item.t option
 
-  val move: t -> dir -> t
+  val move: t -> dir -> t * (string option)
 
 end = struct
 
@@ -515,8 +520,11 @@ end = struct
     in
 
     match Xy_board.get t.board target with
-    | Error _ -> t
+    | Error _ -> (t,None)
     | Ok contents -> match contents with
-      | Some _ -> t
-      | None -> (move_robot t)
+      | None -> (move_robot t, None)
+      | Some item -> (t, Some (Item.msg item))
+ 
 end
+
+include T
