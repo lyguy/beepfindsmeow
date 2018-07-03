@@ -150,7 +150,6 @@ module Msg = struct
     "\"There is no kitten!\" cackles the old crone. You are shocked by her blasphemy.";
     "This is a Lagrange point. Don't come too close now.";
     "The dirty old tramp bemoans the loss of his harmonica.";
-    "Look, it's Fanny the Irishman!";
     "What in blazes is this?";
     "It's the instruction manual for a previous version of this game.";
     "A brain cell. Oddly enough, it seems to be functioning.";
